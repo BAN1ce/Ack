@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BAN1ce/Ack/pkg/daemon"
+	"github.com/BAN1ce/Ack/pkg/utils"
 )
 
 type IComponent interface {
@@ -21,13 +22,21 @@ type App struct {
 	component   map[string]IComponent
 	stopTimeout time.Duration
 	cancel      context.CancelFunc
+	running     bool
+	runTimeout  time.Duration
 }
+type option func(*App)
 
 func NewApp() *App {
 	return &App{
 		component: make(map[string]IComponent, 100),
 	}
+}
 
+func SetRunTimeout(t time.Duration) option {
+	return func(a *App) {
+		a.runTimeout = t
+	}
 }
 
 func (a *App) RegisterProvider(provider IComponent) {
@@ -37,12 +46,25 @@ func (a *App) RegisterProvider(provider IComponent) {
 func (a *App) Run() error {
 	var ctx context.Context
 	ctx, a.cancel = context.WithCancel(context.TODO())
+
+	if a.runTimeout == 0 {
+		a.runTimeout = 10 * time.Second
+	}
+
+	// 检查启动超时
+	utils.After(ctx, a.runTimeout, func() {
+		if !a.running {
+			panic("Application Run Timeout")
+		}
+	})
+
 	for _, v := range a.component {
 		err := v.Start(ctx)
 		if err != nil {
 			return err
 		}
 	}
+	a.running = true
 
 	daemon.SetSigHandler(func(sig os.Signal) (err error) {
 
